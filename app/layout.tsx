@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Cormorant_Garamond, Inter } from "next/font/google";
 import "./globals.css";
+import { MiniKitProvider } from "../components/MiniKitProvider";
 
 const cormorant = Cormorant_Garamond({
   subsets: ["latin"],
@@ -27,7 +28,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${cormorant.variable} ${inter.variable} antialiased`}>
-        {children}
+        <MiniKitProvider>{children}</MiniKitProvider>
       </body>
     </html>
   );
