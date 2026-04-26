@@ -18,10 +18,13 @@ import { CardMessage } from '../components/CardMessage'
 import { ActionButtons } from '../components/ActionButtons'
 import { ConvertModal, ValidationIssue } from '../components/ConvertModal'
 import { Toast } from '../components/Toast'
+import { WorldIDButton } from '../components/WorldIDButton'
+
+const USER_ID_STORAGE_KEY = 'df:userId'
 
 export default function DailyFortune() {
-  // User state (in production: World ID)
-  const [userId, setUserId] = useState('user_demo_guest')
+  // Verified World ID nullifier_hash (null = guest)
+  const [verifiedUserId, setVerifiedUserId] = useState<string | null>(null)
   
   // Card interaction state
   const [flipped, setFlipped] = useState(false)
@@ -44,14 +47,25 @@ export default function DailyFortune() {
     lifetimeConvertedWld: 0
   })
 
+  // Restore previous verification on mount so users don't re-verify each visit.
+  // localStorage is unavailable during SSR, so this must run after hydration.
   useEffect(() => {
-  setUserId('user_demo_' + Math.floor(Math.random() * 1000))
-}, [])
-  
+    const stored = localStorage.getItem(USER_ID_STORAGE_KEY)
+    if (stored) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setVerifiedUserId(stored)
+    }
+  }, [])
+
+  const handleVerified = (userId: string) => {
+    setVerifiedUserId(userId)
+    localStorage.setItem(USER_ID_STORAGE_KEY, userId)
+  }
+
   // Derived state
   const countdown = useCountdown()
   const today = getLocalDateStr()
-  const card = getTodaysCard(userId, today)
+  const card = getTodaysCard(verifiedUserId ?? 'guest', today)
   
   // ===========================
   // Handlers
@@ -240,7 +254,16 @@ const handleShare = async () => {
       
       <div className="relative max-w-md mx-auto px-5 py-6 min-h-screen">
         
-        <Header stardust={stardust} counterPulse={counterPulse} />
+        <Header
+          stardust={stardust}
+          counterPulse={counterPulse}
+          authSlot={
+            <WorldIDButton
+              isVerified={!!verifiedUserId}
+              onSuccess={handleVerified}
+            />
+          }
+        />
 
         {/* Countdown */}
         <div className="text-center mb-8">
