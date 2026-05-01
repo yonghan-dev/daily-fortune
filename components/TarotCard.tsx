@@ -180,7 +180,7 @@ function CardFront({ card, flipped }: { card: TarotCardType; flipped: boolean })
           className="text-8xl mb-6"
           initial={{ scale: 0, rotate: -30 }}
           animate={flipped ? { scale: 1, rotate: 0 } : { scale: 0 }}
-          transition={{ delay: 0.5, type: 'spring', stiffness: 100 }}
+          transition={{ delay: 0.5, type: 'spring', stiffness: 200, damping: 25 }}
         >
           {card.emoji}
         </motion.div>
