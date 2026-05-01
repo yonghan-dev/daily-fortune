@@ -21,7 +21,6 @@ import { ConvertModal, ValidationIssue } from '../components/ConvertModal'
 import { Toast } from '../components/Toast'
 
 const USER_ID_STORAGE_KEY = 'df:userId'
-const STARDUST_STORAGE_KEY = 'df:stardust'
 
 export default function DailyFortune() {
   // Verified wallet address from MiniKit walletAuth (null = guest)
@@ -32,11 +31,10 @@ export default function DailyFortune() {
   const [shared, setShared] = useState(false)
   const [showDetails, setShowDetails] = useState<TabKey | null>(null)
   
-  // Rewards state — Stardust starts at 0; persisted to localStorage so it
-  // accumulates across visits. The `stardustHydrated` flag avoids clobbering
-  // a stored value with the initial 0 before the restore effect has run.
+  // Rewards state — Stardust is the server's authoritative value; the init
+  // effect below replaces this 0 with the DB-backed balance once the user is
+  // verified. Guest mode keeps the local 0 (no persistence).
   const [stardust, setStardust] = useState(0)
-  const [stardustHydrated, setStardustHydrated] = useState(false)
   const [bigReward, setBigReward] = useState<number | false>(false)
   const [counterPulse, setCounterPulse] = useState(false)
   
@@ -110,24 +108,36 @@ export default function DailyFortune() {
     }
   }, [])
 
-  // Restore Stardust from localStorage on mount.
+  // Sync Stardust from Supabase whenever a verified wallet is set. New users
+  // get a 100 ✨ welcome bonus on the server; returning users get their saved
+  // balance. Guest mode (verifiedUserId === null) keeps local 0 with no fetch.
   useEffect(() => {
-    const stored = localStorage.getItem(STARDUST_STORAGE_KEY)
-    if (stored !== null) {
-      const n = Number.parseInt(stored, 10)
-      if (Number.isFinite(n) && n >= 0) {
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        setStardust(n)
+    if (!verifiedUserId) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch('/api/user/init', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ wallet_address: verifiedUserId }),
+        })
+        if (!res.ok || cancelled) return
+        const json = (await res.json()) as {
+          success?: boolean
+          user?: { stardust?: number }
+        }
+        if (cancelled || !json.success) return
+        if (typeof json.user?.stardust === 'number') {
+          setStardust(json.user.stardust)
+        }
+      } catch (err) {
+        console.warn('[daily-fortune] init failed', err)
       }
+    })()
+    return () => {
+      cancelled = true
     }
-    setStardustHydrated(true)
-  }, [])
-
-  // Persist every Stardust change after hydration.
-  useEffect(() => {
-    if (!stardustHydrated) return
-    localStorage.setItem(STARDUST_STORAGE_KEY, String(stardust))
-  }, [stardust, stardustHydrated])
+  }, [verifiedUserId])
 
   // Derived state
   const countdown = useCountdown()
@@ -141,18 +151,44 @@ export default function DailyFortune() {
   const handleFlip = () => {
     if (flipped) return
     setFlipped(true)
-    
+
     setTimeout(() => {
       setBigReward(10)
       setCounterPulse(true)
     }, 700)
-    
+
     setTimeout(() => {
       setBigReward(false)
       setStardust(s => s + 10)
     }, 1300)
-    
+
     setTimeout(() => setCounterPulse(false), 2000)
+
+    // Persist the draw and reconcile balance with the server (guest skips).
+    if (!verifiedUserId) return
+    ;(async () => {
+      try {
+        const res = await fetch('/api/card/draw', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            wallet_address: verifiedUserId,
+            card_id: card.id,
+            card_name: card.name,
+          }),
+        })
+        const json = (await res.json()) as {
+          success?: boolean
+          new_stardust?: number
+          reason?: string
+        }
+        if (typeof json.new_stardust === 'number') {
+          setStardust(json.new_stardust)
+        }
+      } catch (err) {
+        console.warn('[daily-fortune] card draw sync failed', err)
+      }
+    })()
   }
   
 const handleShare = async () => {
@@ -208,22 +244,47 @@ const handleShare = async () => {
     
     // 공유 완료 → 리워드
     setShared(true)
-    
+
     setTimeout(() => {
       setBigReward(15)
       setCounterPulse(true)
     }, 200)
-    
+
     setTimeout(() => {
       setBigReward(false)
       setStardust(s => s + 15)
     }, 800)
-    
+
     setTimeout(() => {
       setCounterPulse(false)
       setShowToast('✨ Shared! +15 Stardust earned')
       setTimeout(() => setShowToast(null), 3000)
     }, 1500)
+
+    // Persist the share and reconcile balance with the server (guest skips).
+    if (!verifiedUserId) return
+    ;(async () => {
+      try {
+        const res = await fetch('/api/share/reward', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            wallet_address: verifiedUserId,
+            platform: 'web_share',
+          }),
+        })
+        const json = (await res.json()) as {
+          success?: boolean
+          new_stardust?: number
+          reason?: string
+        }
+        if (typeof json.new_stardust === 'number') {
+          setStardust(json.new_stardust)
+        }
+      } catch (err) {
+        console.warn('[daily-fortune] share reward sync failed', err)
+      }
+    })()
     
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
