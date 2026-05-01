@@ -21,6 +21,7 @@ import { ConvertModal, ValidationIssue } from '../components/ConvertModal'
 import { Toast } from '../components/Toast'
 
 const USER_ID_STORAGE_KEY = 'df:userId'
+const STARDUST_STORAGE_KEY = 'df:stardust'
 
 export default function DailyFortune() {
   // Verified wallet address from MiniKit walletAuth (null = guest)
@@ -31,8 +32,11 @@ export default function DailyFortune() {
   const [shared, setShared] = useState(false)
   const [showDetails, setShowDetails] = useState<TabKey | null>(null)
   
-  // Rewards state
-  const [stardust, setStardust] = useState(147)
+  // Rewards state — Stardust starts at 0; persisted to localStorage so it
+  // accumulates across visits. The `stardustHydrated` flag avoids clobbering
+  // a stored value with the initial 0 before the restore effect has run.
+  const [stardust, setStardust] = useState(0)
+  const [stardustHydrated, setStardustHydrated] = useState(false)
   const [bigReward, setBigReward] = useState<number | false>(false)
   const [counterPulse, setCounterPulse] = useState(false)
   
@@ -105,6 +109,25 @@ export default function DailyFortune() {
       cancelled = true
     }
   }, [])
+
+  // Restore Stardust from localStorage on mount.
+  useEffect(() => {
+    const stored = localStorage.getItem(STARDUST_STORAGE_KEY)
+    if (stored !== null) {
+      const n = Number.parseInt(stored, 10)
+      if (Number.isFinite(n) && n >= 0) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setStardust(n)
+      }
+    }
+    setStardustHydrated(true)
+  }, [])
+
+  // Persist every Stardust change after hydration.
+  useEffect(() => {
+    if (!stardustHydrated) return
+    localStorage.setItem(STARDUST_STORAGE_KEY, String(stardust))
+  }, [stardust, stardustHydrated])
 
   // Derived state
   const countdown = useCountdown()

@@ -176,12 +176,11 @@ function CardFront({ card, flipped }: { card: TarotCardType; flipped: boolean })
 
       {/* Center content */}
       <div className="absolute inset-0 flex flex-col items-center justify-center px-6">
-        <motion.div 
+        <motion.div
           className="text-8xl mb-6"
           initial={{ scale: 0, rotate: -30 }}
           animate={flipped ? { scale: 1, rotate: 0 } : { scale: 0 }}
           transition={{ delay: 0.5, type: 'spring', stiffness: 100 }}
-          style={{ filter: 'drop-shadow(0 0 30px rgba(212, 175, 55, 0.5))' }}
         >
           {card.emoji}
         </motion.div>
