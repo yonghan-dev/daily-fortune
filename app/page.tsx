@@ -2,6 +2,13 @@
 
 import { useState, useEffect } from 'react'
 import { AnimatePresence } from 'framer-motion'
+import { MiniKit } from '@worldcoin/minikit-js'
+import {
+  IDKitWidget,
+  useIDKit,
+  VerificationLevel,
+  type ISuccessResult,
+} from '@worldcoin/idkit'
 
 // Libs
 import { getTodaysCard, getLocalDateStr } from '../lib/utils'
@@ -18,7 +25,6 @@ import { CardMessage } from '../components/CardMessage'
 import { ActionButtons } from '../components/ActionButtons'
 import { ConvertModal, ValidationIssue } from '../components/ConvertModal'
 import { Toast } from '../components/Toast'
-import { WorldIDButton } from '../components/WorldIDButton'
 
 const USER_ID_STORAGE_KEY = 'df:userId'
 
@@ -47,19 +53,49 @@ export default function DailyFortune() {
     lifetimeConvertedWld: 0
   })
 
-  // Restore previous verification on mount so users don't re-verify each visit.
-  // localStorage is unavailable during SSR, so this must run after hydration.
+  // Drives the (hidden) IDKitWidget mounted below.
+  const { setOpen: setIDKitOpen } = useIDKit()
+
+  // Bootstrap World ID: restore from localStorage, otherwise auto-trigger
+  // verification when running inside World App. Outside (regular browser)
+  // MiniKit.isInstalled() is false, so we stay in guest mode.
   useEffect(() => {
     const stored = localStorage.getItem(USER_ID_STORAGE_KEY)
     if (stored) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setVerifiedUserId(stored)
+      return
     }
-  }, [])
 
-  const handleVerified = (userId: string) => {
-    setVerifiedUserId(userId)
-    localStorage.setItem(USER_ID_STORAGE_KEY, userId)
+    const appId = process.env.NEXT_PUBLIC_APP_ID
+    const action = process.env.NEXT_PUBLIC_ACTION
+    if (!appId || !action) return
+
+    // MiniKitProvider also calls install(), but child effects run before
+    // parent effects in React, so re-call here. install() is idempotent.
+    MiniKit.install(appId as `app_${string}`)
+    if (!MiniKit.isInstalled()) return
+
+    // Defer to next tick so IDKitWidget below is mounted before we open it.
+    const timer = setTimeout(() => setIDKitOpen(true), 0)
+    return () => clearTimeout(timer)
+  }, [setIDKitOpen])
+
+  const handleAutoVerify = async (proof: ISuccessResult) => {
+    const res = await fetch('/api/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(proof),
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      throw new Error(err.detail ?? 'Verification failed')
+    }
+  }
+
+  const handleAutoSuccess = (result: ISuccessResult) => {
+    setVerifiedUserId(result.nullifier_hash)
+    localStorage.setItem(USER_ID_STORAGE_KEY, result.nullifier_hash)
   }
 
   // Derived state
@@ -251,18 +287,25 @@ const handleShare = async () => {
       }}
     >
       <StarField />
-      
+
+      {/* Headless World ID widget — opened automatically inside World App */}
+      {process.env.NEXT_PUBLIC_APP_ID && process.env.NEXT_PUBLIC_ACTION && (
+        <IDKitWidget
+          app_id={process.env.NEXT_PUBLIC_APP_ID as `app_${string}`}
+          action={process.env.NEXT_PUBLIC_ACTION}
+          verification_level={VerificationLevel.Device}
+          handleVerify={handleAutoVerify}
+          onSuccess={handleAutoSuccess}
+        >
+          {() => <></>}
+        </IDKitWidget>
+      )}
+
       <div className="relative max-w-md mx-auto px-5 py-6 min-h-screen">
-        
+
         <Header
           stardust={stardust}
           counterPulse={counterPulse}
-          authSlot={
-            <WorldIDButton
-              isVerified={!!verifiedUserId}
-              onSuccess={handleVerified}
-            />
-          }
         />
 
         {/* Countdown */}
