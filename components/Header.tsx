@@ -1,19 +1,14 @@
 'use client'
 
-import type { ReactNode } from 'react'
 import { motion } from 'framer-motion'
 import { formatDate } from '../lib/utils'
 
 interface HeaderProps {
   stardust: number
   counterPulse: boolean
-  authSlot?: ReactNode
 }
 
-/**
- * App header with Stardust counter and optional World ID auth slot
- */
-export function Header({ stardust, counterPulse, authSlot }: HeaderProps) {
+export function Header({ stardust, counterPulse }: HeaderProps) {
   return (
     <header className="flex items-center justify-between mb-6">
       {/* Date + Title */}
@@ -56,8 +51,6 @@ export function Header({ stardust, counterPulse, authSlot }: HeaderProps) {
             </motion.span>
           </div>
         </motion.div>
-
-        {authSlot}
       </div>
     </header>
   )
