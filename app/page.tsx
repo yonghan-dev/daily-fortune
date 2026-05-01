@@ -3,12 +3,6 @@
 import { useState, useEffect } from 'react'
 import { AnimatePresence } from 'framer-motion'
 import { MiniKit } from '@worldcoin/minikit-js'
-import {
-  IDKitWidget,
-  useIDKit,
-  VerificationLevel,
-  type ISuccessResult,
-} from '@worldcoin/idkit'
 
 // Libs
 import { getTodaysCard, getLocalDateStr } from '../lib/utils'
@@ -29,7 +23,7 @@ import { Toast } from '../components/Toast'
 const USER_ID_STORAGE_KEY = 'df:userId'
 
 export default function DailyFortune() {
-  // Verified World ID nullifier_hash (null = guest)
+  // Verified wallet address from MiniKit walletAuth (null = guest)
   const [verifiedUserId, setVerifiedUserId] = useState<string | null>(null)
   
   // Card interaction state
@@ -53,13 +47,13 @@ export default function DailyFortune() {
     lifetimeConvertedWld: 0
   })
 
-  // Drives the (hidden) IDKitWidget mounted below.
-  const { setOpen: setIDKitOpen } = useIDKit()
-
-  // Bootstrap World ID: restore from localStorage, otherwise auto-trigger
-  // verification when running inside World App. Outside (regular browser)
-  // MiniKit.isInstalled() is false, so we stay in guest mode.
+  // Bootstrap user identity: restore from localStorage, otherwise — only when
+  // running inside World App — authenticate natively via MiniKit.walletAuth
+  // (SIWE). Outside World App we stay as guest with no auth attempt and no
+  // popup; identity is only used to seed each user's daily tarot card.
   useEffect(() => {
+    let cancelled = false
+
     const stored = localStorage.getItem(USER_ID_STORAGE_KEY)
     if (stored) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -67,36 +61,50 @@ export default function DailyFortune() {
       return
     }
 
-    const appId = process.env.NEXT_PUBLIC_APP_ID
-    const action = process.env.NEXT_PUBLIC_ACTION
-    if (!appId || !action) return
+    ;(async () => {
+      try {
+        const appId = process.env.NEXT_PUBLIC_APP_ID
+        if (!appId) return
 
-    // MiniKitProvider also calls install(), but child effects run before
-    // parent effects in React, so re-call here. install() is idempotent.
-    MiniKit.install(appId as `app_${string}`)
-    if (!MiniKit.isInstalled()) return
+        // MiniKitProvider also calls install(), but child effects run before
+        // parent effects in React, so re-call here. install() is idempotent.
+        MiniKit.install(appId as `app_${string}`)
+        if (!MiniKit.isInstalled()) return
 
-    // Defer to next tick so IDKitWidget below is mounted before we open it.
-    const timer = setTimeout(() => setIDKitOpen(true), 0)
-    return () => clearTimeout(timer)
-  }, [setIDKitOpen])
+        // Alphanumeric, ≥ 8 chars per MiniKit's stricter v2 SIWE nonce check.
+        const nonce = crypto.randomUUID().replace(/-/g, '')
 
-  const handleAutoVerify = async (proof: ISuccessResult) => {
-    const res = await fetch('/api/verify', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(proof),
-    })
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}))
-      throw new Error(err.detail ?? 'Verification failed')
+        const result = await MiniKit.walletAuth({ nonce })
+        if (cancelled) return
+        const payload = result?.data
+        if (!payload?.address || !payload?.message || !payload?.signature) {
+          console.warn('[daily-fortune] walletAuth returned no data', result)
+          return
+        }
+
+        const res = await fetch('/api/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ payload, nonce }),
+        })
+        if (!res.ok) {
+          console.warn('[daily-fortune] backend verify failed', res.status)
+          return
+        }
+        const { userId } = (await res.json()) as { userId?: string }
+        if (cancelled || !userId) return
+
+        setVerifiedUserId(userId)
+        localStorage.setItem(USER_ID_STORAGE_KEY, userId)
+      } catch (err) {
+        console.warn('[daily-fortune] auto-verify error', err)
+      }
+    })()
+
+    return () => {
+      cancelled = true
     }
-  }
-
-  const handleAutoSuccess = (result: ISuccessResult) => {
-    setVerifiedUserId(result.nullifier_hash)
-    localStorage.setItem(USER_ID_STORAGE_KEY, result.nullifier_hash)
-  }
+  }, [])
 
   // Derived state
   const countdown = useCountdown()
@@ -287,19 +295,6 @@ const handleShare = async () => {
       }}
     >
       <StarField />
-
-      {/* Headless World ID widget — opened automatically inside World App */}
-      {process.env.NEXT_PUBLIC_APP_ID && process.env.NEXT_PUBLIC_ACTION && (
-        <IDKitWidget
-          app_id={process.env.NEXT_PUBLIC_APP_ID as `app_${string}`}
-          action={process.env.NEXT_PUBLIC_ACTION}
-          verification_level={VerificationLevel.Device}
-          handleVerify={handleAutoVerify}
-          onSuccess={handleAutoSuccess}
-        >
-          {() => <></>}
-        </IDKitWidget>
-      )}
 
       <div className="relative max-w-md mx-auto px-5 py-6 min-h-screen">
 
